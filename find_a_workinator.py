@@ -45,7 +45,7 @@ def get_headers():
         'Sec-Fetch-User': '?1',
         'Connection': 'keep-alive',
         'Cache-Control': 'no-cache',
-        'Host': 'pracuj.pl',
+        'Host': 'www.pracuj.pl',
     }
     logging.debug(f"Request headers being used (excluding cookies handled by session): {json.dumps(headers, indent=2)}")
     return headers
@@ -63,7 +63,7 @@ def build_url(keywords=None, city=None, distance=None, page=1):
     Returns:
         str: Complete URL for the pracuj.pl job search with the specified parameters.
     """
-    base_url = "https://pracuj.pl/praca"
+    base_url = "https://www.pracuj.pl/praca"
     url_parts = []
     
     if keywords:
