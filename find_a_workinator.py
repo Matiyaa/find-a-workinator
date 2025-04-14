@@ -6,15 +6,11 @@ import re
 import json
 import logging
 
+# Import custom logger setup
+from logger import setup_logger
 
-# Set up logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
-)
+# Set up logging using the custom function
+logger = setup_logger(name='find_a_workinator', log_level=logging.INFO)
 
 
 def get_headers():
@@ -47,7 +43,7 @@ def get_headers():
         'Cache-Control': 'no-cache',
         'Host': 'www.pracuj.pl',
     }
-    logging.debug(f"Request headers being used (excluding cookies handled by session): {json.dumps(headers, indent=2)}")
+    logger.debug(f"Request headers being used (excluding cookies handled by session): {json.dumps(headers, indent=2)}")
     return headers
 
 
@@ -107,7 +103,7 @@ def make_request(scraper, url):
         - Logs detailed request/response information at various log levels
     """
     try:
-        logging.info(f"Making request to: {url}")
+        logger.info(f"Making request to: {url}")
         headers = get_headers() # Get headers (without hardcoded Cookie)
 
         # Use the scraper object's get method
@@ -118,29 +114,29 @@ def make_request(scraper, url):
             timeout=20 # Timeout to prevent hanging indefinitely
         )
 
-        logging.info(f"Response status: {response.status_code}")
+        logger.info(f"Response status: {response.status_code}")
         # Log received cookies (optional, for debugging)
-        logging.debug(f"Cookies received and managed by session: {scraper.cookies.get_dict()}")
+        logger.debug(f"Cookies received and managed by session: {scraper.cookies.get_dict()}")
         # Log response headers (as before)
-        logging.info(f"Response headers: {json.dumps(dict(response.headers), indent=2)}")
+        logger.info(f"Response headers: {json.dumps(dict(response.headers), indent=2)}")
 
         # Check for explicit blocks
         if response.status_code == 403:
-            logging.error(f"Cloudflare challenge likely failed or persisted. Status: 403.")
+            logger.error(f"Cloudflare challenge likely failed or persisted. Status: 403.")
             # Consider raising an exception or handling this case
         elif "Przepraszamy, strona której szukasz jest niedostępna" in response.text or "detected unusual activity" in response.text:
-            logging.warning(f"Potential block detected despite status {response.status_code} on URL: {url}")
+            logger.warning(f"Potential block detected despite status {response.status_code} on URL: {url}")
 
         response.raise_for_status()
 
         return response
 
     except Exception as e:
-        logging.error(f"Request failed for {url}: {str(e)}")
+        logger.error(f"Request failed for {url}: {str(e)}")
         # Log response details if available, even on error
         if hasattr(e, 'response') and e.response is not None:
-            logging.error(f"Status code: {e.response.status_code}")
-            logging.error(f"Response text snippet: {e.response.text[:500]}...")
+            logger.error(f"Status code: {e.response.status_code}")
+            logger.error(f"Response text snippet: {e.response.text[:500]}...")
         raise
 
 
@@ -201,7 +197,7 @@ def extract_job_offer(offer_element, base_url):
             else:
                  data['position'] = clean_text(position_tag.text)
         else:
-            logging.warning("Could not find position tag with data-test='offer-title'")
+            logger.warning("Could not find position tag with data-test='offer-title'")
             return None
 
         # --- Extract Company Name ---
@@ -211,15 +207,15 @@ def extract_job_offer(offer_element, base_url):
             if company_tag:
                 data['company'] = clean_text(company_tag.text)
             else:
-                logging.warning("Could not find company name tag (h3[data-test='text-company-name']) within company section")
+                logger.warning("Could not find company name tag (h3[data-test='text-company-name']) within company section")
         else:
             # Fallback: Sometimes company name might be in the alt text of the logo image
             logo_img = offer_element.find('img', attrs={'data-test': 'image-responsive'})
             if logo_img and logo_img.get('alt'):
                 data['company'] = clean_text(logo_img['alt'])
-                logging.debug("Found company name in logo alt text as fallback.")
+                logger.debug("Found company name in logo alt text as fallback.")
             else:
-                logging.warning("Could not find company section or logo alt text for company name.")
+                logger.warning("Could not find company section or logo alt text for company name.")
                 return None
 
         # --- Extract Location (City) ---
@@ -232,7 +228,7 @@ def extract_job_offer(offer_element, base_url):
             if location_list_item:
                 data['city'] = clean_text(location_list_item.text)
             else:
-                logging.warning("Could not find location tag (h4[data-test='text-region'] or li[data-test^='offer-location-'])")
+                logger.warning("Could not find location tag (h4[data-test='text-region'] or li[data-test^='offer-location-'])")
         
         # --- Extract Salary ---
         salary_tag = offer_element.find('span', attrs={'data-test': 'offer-salary'})
@@ -240,7 +236,7 @@ def extract_job_offer(offer_element, base_url):
             data['salary'] = clean_text(salary_tag.text)
         else:
             # Log that salary wasn't found using the current selector
-            logging.debug("Salary tag with data-test='offer-salary' not found for this offer.")
+            logger.debug("Salary tag with data-test='offer-salary' not found for this offer.")
             data['salary'] = "N/A" # Explicitly set to N/A if not found
 
         # --- Extract Offer Link ---
@@ -253,19 +249,19 @@ def extract_job_offer(offer_element, base_url):
         if link_tag and link_tag.get('href'):
             data['offer_link'] = urljoin(base_url, link_tag['href']) # Ensure absolute URL
         else:
-            logging.warning("Could not find offer link tag (inside title or a[data-test='link-offer'])")
+            logger.warning("Could not find offer link tag (inside title or a[data-test='link-offer'])")
             return None
 
         # --- Final Validation ---
         if data['position'] == "N/A" or data['company'] == "N/A" or data['offer_link'] == "N/A":
-            logging.warning(f"Missing essential data for an offer. Extracted: {data}. Skipping this offer.")
+            logger.warning(f"Missing essential data for an offer. Extracted: {data}. Skipping this offer.")
             return None # Skip incomplete offers
 
-        logging.debug(f"Successfully extracted: {data['position']} at {data['company']}")
+        logger.debug(f"Successfully extracted: {data['position']} at {data['company']}")
         return data
 
     except Exception as e:
-        logging.error(f"Error extracting job offer details: {e}", exc_info=True)
+        logger.error(f"Error extracting job offer details: {e}", exc_info=True)
         return None
 
 
@@ -322,16 +318,16 @@ def scrape_jobs(url_template, max_offers=25):
                 page=current_page
             )
             
-            logging.info(f"Fetching page {current_page}" +
+            logger.info(f"Fetching page {current_page}" +
                         (f"/{max_page_number}" if max_page_number else "") +
                         f" (target: {max_offers} offers)... URL: {current_url}")
             
             response = make_request(scraper, current_url)
             
             if response is None or not response.ok:
-                logging.error(f"Failed to retrieve or received error for page {current_page}. Stopping scrape.")
+                logger.error(f"Failed to retrieve or received error for page {current_page}. Stopping scrape.")
                 if response:
-                     logging.error(f"Status code: {response.status_code}. Response sample: {response.text[:500]}...")
+                     logger.error(f"Status code: {response.status_code}. Response sample: {response.text[:500]}...")
                 break # Stop if the request failed
 
             
@@ -343,41 +339,41 @@ def scrape_jobs(url_template, max_offers=25):
                     max_page_span = soup.find('span', attrs={'data-test': 'top-pagination-max-page-number'})
                     if max_page_span and max_page_span.text:
                         max_page_number = int(clean_text(max_page_span.text))
-                        logging.info(f"Detected maximum page number: {max_page_number}")
+                        logger.info(f"Detected maximum page number: {max_page_number}")
                     else:
-                        logging.warning("Could not find max page number span. Relying on offer count or lack of offers.")
+                        logger.warning("Could not find max page number span. Relying on offer count or lack of offers.")
                 except Exception as e:
-                    logging.error(f"Error finding/parsing max page number: {e}")
+                    logger.error(f"Error finding/parsing max page number: {e}")
             
             # Find all job offer containers
             main_offers_area = soup.find('div', id='offers-list')
             
             if not main_offers_area:
                 # If even the main container isn't found, something is wrong with the page structure
-                logging.error(f"Could not find the main offers area ('div#offers-list') on page {current_page}.")
+                logger.error(f"Could not find the main offers area ('div#offers-list') on page {current_page}.")
                 if "nie znaleźliśmy ofert pasujących" in response.text.lower():
-                    logging.info("No offers found matching the criteria (message found).")
+                    logger.info("No offers found matching the criteria (message found).")
                 else:
                     debug_filename = f"page_{current_page}_debug_main_area_not_found.html"
                     with open(debug_filename, "w", encoding="utf-8") as f: f.write(response.text)
-                    logging.warning(f"Could not find main offers area. Saved page HTML to {debug_filename}")
+                    logger.warning(f"Could not find main offers area. Saved page HTML to {debug_filename}")
                 break # Stop if the main area isn't found
 
             job_offer_elements = main_offers_area.find_all('div', attrs={'data-test-offerid': True})
                 
             if not job_offer_elements:
-                logging.info(f"No job offer elements (div[data-test-offerid]) found within the container on page {current_page}.")
+                logger.info(f"No job offer elements (div[data-test-offerid]) found within the container on page {current_page}.")
                 # Check again if it's just the end of results
                 if "nie znaleźliśmy ofert pasujących" in response.text.lower():
-                     logging.info("No more offers found (confirmed by message).")
+                     logger.info("No more offers found (confirmed by message).")
                 else:
                      # Log the container's content for debugging
-                     logging.warning(f"Container found, but no offer elements inside. Container snippet: {str(main_offers_area)[:500]}...")
+                     logger.warning(f"Container found, but no offer elements inside. Container snippet: {str(main_offers_area)[:500]}...")
                      # Save HTML again if needed
                      debug_filename = f"page_{current_page}_debug_no_offers_in_container.html"
                      with open(debug_filename, "w", encoding="utf-8") as f:
                           f.write(response.text)
-                     logging.warning(f"Saved page HTML to {debug_filename} for inspection.")
+                     logger.warning(f"Saved page HTML to {debug_filename} for inspection.")
 
                 break # Stop if no offers found on the page
 
@@ -393,29 +389,29 @@ def scrape_jobs(url_template, max_offers=25):
                     offers.append(job_data)
                     offers_extracted_on_page += 1 
 
-            logging.info(f"Found {len(job_offer_elements)} potential offer elements on page {current_page}.")
+            logger.info(f"Found {len(job_offer_elements)} potential offer elements on page {current_page}.")
          
             # If elements were found but nothing was extracted, it points to issues in extract_job_offer selectors
             if offers_extracted_on_page == 0 and job_offer_elements:
-                logging.warning(f"Found {len(job_offer_elements)} offer elements on page {current_page}, but failed to extract data from any. Check selectors in extract_job_offer.")
+                logger.warning(f"Found {len(job_offer_elements)} offer elements on page {current_page}, but failed to extract data from any. Check selectors in extract_job_offer.")
                 # Save HTML for debugging extraction issues
                 debug_filename = f"page_{current_page}_debug_extraction_failed.html"
                 with open(debug_filename, "w", encoding="utf-8") as f:
                     f.write(response.text)
-                logging.warning(f"Saved page HTML to {debug_filename} for inspection.")
+                logger.warning(f"Saved page HTML to {debug_filename} for inspection.")
                 break # Stop if extraction fails consistently
             
-            logging.info(f"Successfully extracted {offers_extracted_on_page} offers from page {current_page}. Total extracted: {len(offers)}.")
+            logger.info(f"Successfully extracted {offers_extracted_on_page} offers from page {current_page}. Total extracted: {len(offers)}.")
             
             if len(offers) >= max_offers:
-                logging.info(f"Reached max offers limit ({max_offers}).")
+                logger.info(f"Reached max offers limit ({max_offers}).")
                 break
             
             current_page += 1
             
     finally:
         # Any cleanup if needed
-        logging.info("Scraping process finished or stopped.")    
+        logger.info("Scraping process finished or stopped.")    
         
         # Print the results
         print("\nFound job offers:")
@@ -429,6 +425,8 @@ def scrape_jobs(url_template, max_offers=25):
                 print("-" * 100)
         else:
             print("No job offers were successfully scraped.")
+    
+    return offers
 
 
 def main():
@@ -448,6 +446,7 @@ def main():
     )
     
     scrape_jobs(url, args.max_offers)
+
 
 if __name__ == "__main__":
     main()
