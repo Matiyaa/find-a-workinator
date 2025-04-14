@@ -174,7 +174,7 @@ def extract_job_offer(offer_element, base_url):
         base_url (str): The base URL of the page, used to resolve relative links if necessary.
 
     Returns:
-        dict: A dictionary containing the extracted job offer details (company, city, position, salary, offer_link),
+        dict: A dictionary containing the extracted job offer details (company, city, position, salary, offer_link, offer_id, date_added),
               or None if essential information couldn't be extracted.
     """
     
@@ -182,11 +182,20 @@ def extract_job_offer(offer_element, base_url):
         "company": "N/A",
         "city": "N/A",
         "position": "N/A",
-        "salary": "N/A", # Salary often varies in how it's displayed, needs careful checking
-        "offer_link": "N/A"
+        "salary": "N/A",
+        "offer_link": "N/A",
+        "offer_id": "N/A",
+        "date_added": "N/A"
     }
     
     try:
+        # --- Extract Offer ID ---
+        offer_id = offer_element.get("data-test-offerid")
+        if offer_id:
+            data["offer_id"] = offer_id
+        else:
+            logger.warning("Could not find offer id (data-test-offerid) in offer element.")
+
         # --- Extract Position ---
         position_tag = offer_element.find('h2', attrs={'data-test': 'offer-title'})
         if position_tag:
@@ -252,6 +261,35 @@ def extract_job_offer(offer_element, base_url):
             logger.warning("Could not find offer link tag (inside title or a[data-test='link-offer'])")
             return None
 
+        # --- Extract Offer Add Date ---
+        date_tag = offer_element.find('p', attrs={'data-test': 'text-added'})
+        if date_tag:
+            # Example text: "Opublikowana: 14 kwietnia 2025"
+            import re
+            import datetime
+            date_text = date_tag.text
+            # Find the date part (after colon)
+            match = re.search(r"(\d{1,2}) ([a-ząćęłńóśźż]+) (\d{4})", date_text)
+            if match:
+                day = int(match.group(1))
+                month_name = match.group(2).lower()
+                year = int(match.group(3))
+                # Map Polish month names to month numbers
+                months = {
+                    "stycznia": 1, "lutego": 2, "marca": 3, "kwietnia": 4, "maja": 5, "czerwca": 6,
+                    "lipca": 7, "sierpnia": 8, "września": 9, "października": 10, "listopada": 11, "grudnia": 12
+                }
+                month = months.get(month_name)
+                if month:
+                    date_obj = datetime.date(year, month, day)
+                    data["date_added"] = date_obj.strftime("%d.%m.%Y")
+                else:
+                    logger.warning(f"Unknown month name in date: {month_name}")
+            else:
+                logger.warning(f"Could not parse date from text: {date_text}")
+        else:
+            logger.debug("Date added tag (p[data-test='text-added']) not found for this offer.")
+        
         # --- Final Validation ---
         if data['position'] == "N/A" or data['company'] == "N/A" or data['offer_link'] == "N/A":
             logger.warning(f"Missing essential data for an offer. Extracted: {data}. Skipping this offer.")
@@ -286,6 +324,8 @@ def scrape_jobs(url_template, max_offers=25):
             - city (str): Job location
             - salary (str): Salary information if available
             - offer_link (str): URL to the full job posting
+            - offer_id (str): Unique offer ID
+            - date_added (str): Date the offer was added in dd.mm.yyyy format
 
     Note:
         - Implements automatic pagination detection
@@ -418,10 +458,13 @@ def scrape_jobs(url_template, max_offers=25):
         print("-" * 100)
         if offers:
             for offer in offers:
+                print(f"Offer ID: {offer['offer_id']}")
+                print(f"Date Added: {offer['date_added']}")
                 print(f"Company: {offer['company']}")
                 print(f"Position: {offer['position']}")
                 print(f"Location: {offer['city']}")
                 print(f"Salary: {offer['salary']}")
+                print(f"Offer Link: {offer['offer_link']}")
                 print("-" * 100)
         else:
             print("No job offers were successfully scraped.")
