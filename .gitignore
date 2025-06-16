@@ -46,3 +46,4 @@ install.sh
 *.csv
 *.log
 *.jsonl
+*.db

@@ -9,6 +9,12 @@ import logging
 # Import custom logger setup
 from logger import setup_logger
 
+# Import database manager
+from db_manager import (
+    initialize_database, connect_to_database, close_database,
+    save_job_offers, get_job_offers, export_to_csv
+)
+
 # Set up logging using the custom function
 logger = setup_logger(name='find_a_workinator', log_level=logging.INFO)
 
@@ -61,23 +67,23 @@ def build_url(keywords=None, city=None, distance=None, page=1):
     """
     base_url = "https://www.pracuj.pl/praca"
     url_parts = []
-    
+
     if keywords:
         url_parts.append(f"/{quote(keywords)};kw")
     if city:
         url_parts.append(f"/{quote(city)};wp")
-    
+
     url = base_url + "".join(url_parts)
-    
+
     query_params = []
     if distance:
         query_params.append(f"rd={distance}")
     if page > 1:
         query_params.append(f"pn={page}")
-    
+
     if query_params:
         url += "?" + "&".join(query_params)
-    
+
     return url
 
 
@@ -177,7 +183,7 @@ def extract_job_offer(offer_element, base_url):
         dict: A dictionary containing the extracted job offer details (company, city, position, salary, offer_link, offer_id, date_added),
               or None if essential information couldn't be extracted.
     """
-    
+
     data = {
         "company": "N/A",
         "city": "N/A",
@@ -187,7 +193,7 @@ def extract_job_offer(offer_element, base_url):
         "offer_id": "N/A",
         "date_added": "N/A"
     }
-    
+
     try:
         # --- Extract Offer ID ---
         offer_id = offer_element.get("data-test-offerid")
@@ -238,7 +244,7 @@ def extract_job_offer(offer_element, base_url):
                 data['city'] = clean_text(location_list_item.text)
             else:
                 logger.warning("Could not find location tag (h4[data-test='text-region'] or li[data-test^='offer-location-'])")
-        
+
         # --- Extract Salary ---
         salary_tag = offer_element.find('span', attrs={'data-test': 'offer-salary'})
         if salary_tag:
@@ -289,7 +295,7 @@ def extract_job_offer(offer_element, base_url):
                 logger.warning(f"Could not parse date from text: {date_text}")
         else:
             logger.debug("Date added tag (p[data-test='text-added']) not found for this offer.")
-        
+
         # --- Final Validation ---
         if data['position'] == "N/A" or data['company'] == "N/A" or data['offer_link'] == "N/A":
             logger.warning(f"Missing essential data for an offer. Extracted: {data}. Skipping this offer.")
@@ -346,7 +352,7 @@ def scrape_jobs(url_template, max_offers=25):
             'mobile': False
         }
     )
-    
+
     try:        
         # Loop while we haven't reached max_offers AND
         # (we don't know the max page OR we haven't reached the max page)
@@ -357,22 +363,22 @@ def scrape_jobs(url_template, max_offers=25):
                 distance=args.distance,
                 page=current_page
             )
-            
+
             logger.info(f"Fetching page {current_page}" +
                         (f"/{max_page_number}" if max_page_number else "") +
                         f" (target: {max_offers} offers)... URL: {current_url}")
-            
+
             response = make_request(scraper, current_url)
-            
+
             if response is None or not response.ok:
                 logger.error(f"Failed to retrieve or received error for page {current_page}. Stopping scrape.")
                 if response:
                      logger.error(f"Status code: {response.status_code}. Response sample: {response.text[:500]}...")
                 break # Stop if the request failed
 
-            
+
             soup = BeautifulSoup(response.text, 'html.parser')
-            
+
             # --- Determine Max Page Number (only once, on the first page) ---
             if current_page == 1 and max_page_number is None:
                 try:
@@ -384,10 +390,10 @@ def scrape_jobs(url_template, max_offers=25):
                         logger.warning("Could not find max page number span. Relying on offer count or lack of offers.")
                 except Exception as e:
                     logger.error(f"Error finding/parsing max page number: {e}")
-            
+
             # Find all job offer containers
             main_offers_area = soup.find('div', id='offers-list')
-            
+
             if not main_offers_area:
                 # If even the main container isn't found, something is wrong with the page structure
                 logger.error(f"Could not find the main offers area ('div#offers-list') on page {current_page}.")
@@ -400,7 +406,7 @@ def scrape_jobs(url_template, max_offers=25):
                 break # Stop if the main area isn't found
 
             job_offer_elements = main_offers_area.find_all('div', attrs={'data-test-offerid': True})
-                
+
             if not job_offer_elements:
                 logger.info(f"No job offer elements (div[data-test-offerid]) found within the container on page {current_page}.")
                 # Check again if it's just the end of results
@@ -421,7 +427,7 @@ def scrape_jobs(url_template, max_offers=25):
             for offer_element in job_offer_elements:
                 if len(offers) >= max_offers:
                     break
-                
+
                 # Pass the response.url as base_url for resolving relative links if needed
                 job_data = extract_job_offer(offer_element, response.url)
 
@@ -430,7 +436,7 @@ def scrape_jobs(url_template, max_offers=25):
                     offers_extracted_on_page += 1 
 
             logger.info(f"Found {len(job_offer_elements)} potential offer elements on page {current_page}.")
-         
+
             # If elements were found but nothing was extracted, it points to issues in extract_job_offer selectors
             if offers_extracted_on_page == 0 and job_offer_elements:
                 logger.warning(f"Found {len(job_offer_elements)} offer elements on page {current_page}, but failed to extract data from any. Check selectors in extract_job_offer.")
@@ -440,19 +446,19 @@ def scrape_jobs(url_template, max_offers=25):
                     f.write(response.text)
                 logger.warning(f"Saved page HTML to {debug_filename} for inspection.")
                 break # Stop if extraction fails consistently
-            
+
             logger.info(f"Successfully extracted {offers_extracted_on_page} offers from page {current_page}. Total extracted: {len(offers)}.")
-            
+
             if len(offers) >= max_offers:
                 logger.info(f"Reached max offers limit ({max_offers}).")
                 break
-            
+
             current_page += 1
-            
+
     finally:
         # Any cleanup if needed
         logger.info("Scraping process finished or stopped.")    
-        
+
         # Print the results
         print("\nFound job offers:")
         print("-" * 100)
@@ -468,27 +474,117 @@ def scrape_jobs(url_template, max_offers=25):
                 print("-" * 100)
         else:
             print("No job offers were successfully scraped.")
-    
+
     return offers
+
+
+def handle_database_operations():
+    """Handle database operations like listing saved offers and exporting to CSV."""
+    # Connect to database
+    conn = connect_to_database(args.db_path) if args.db_path else connect_to_database()
+
+    try:
+        # Prepare filters
+        filters = {}
+        if args.filter_company:
+            filters['company'] = args.filter_company
+        if args.filter_position:
+            filters['position'] = args.filter_position
+        if args.filter_city:
+            filters['city'] = args.filter_city
+        if args.filter_date_from:
+            filters['date_from'] = args.filter_date_from
+        if args.filter_date_to:
+            filters['date_to'] = args.filter_date_to
+
+        # Get offers based on filters
+        offers = get_job_offers(conn, filters)
+
+        # Export to CSV if requested
+        if args.export_csv:
+            if export_to_csv(conn, args.export_csv, filters):
+                print(f"Successfully exported offers to {args.export_csv}")
+            else:
+                print(f"Failed to export offers to {args.export_csv}")
+
+        # List offers if requested or no export was specified
+        if args.list_saved or not args.export_csv:
+            print("\nSaved job offers:")
+            print("-" * 100)
+            if offers:
+                for offer in offers:
+                    print(f"Offer ID: {offer['offer_id']}")
+                    print(f"Date Added: {offer['date_added']}")
+                    print(f"Date Scraped: {offer['date_scraped']}")
+                    print(f"Company: {offer['company']}")
+                    print(f"Position: {offer['position']}")
+                    print(f"Location: {offer['city']}")
+                    print(f"Salary: {offer['salary']}")
+                    print(f"Offer Link: {offer['offer_link']}")
+                    print("-" * 100)
+                print(f"Total: {len(offers)} offers")
+            else:
+                print("No job offers found matching the criteria.")
+    finally:
+        close_database(conn)
 
 
 def main():
     parser = argparse.ArgumentParser(description='Find-a-workinator (faw) - Job offer scraper for pracuj.pl')
+
+    # Existing arguments
     parser.add_argument('--keywords', '-k', type=str, help='Keywords for job search')
     parser.add_argument('--city', '-c', type=str, help='City for job search')
     parser.add_argument('--distance', '-d', type=int, help='Maximum distance from city in km')
     parser.add_argument('--max-offers', '-m', type=int, default=25, help='Maximum number of offers to return (default: 25)')
-    
+
+    # New database-related arguments
+    parser.add_argument('--save-to-db', action='store_true', default=True, help='Save scraped offers to database (default: True)')
+    parser.add_argument('--no-save-to-db', action='store_false', dest='save_to_db', help='Do not save scraped offers to database')
+    parser.add_argument('--db-path', type=str, help='Path to SQLite database file (default: job_offers.db in script directory)')
+    parser.add_argument('--list-saved', action='store_true', help='List saved job offers from the database')
+    parser.add_argument('--filter-company', type=str, help='Filter saved offers by company name')
+    parser.add_argument('--filter-position', type=str, help='Filter saved offers by position/title')
+    parser.add_argument('--filter-city', type=str, help='Filter saved offers by city')
+    parser.add_argument('--filter-date-from', type=str, help='Filter saved offers by date added (from) in format YYYY-MM-DD')
+    parser.add_argument('--filter-date-to', type=str, help='Filter saved offers by date added (to) in format YYYY-MM-DD')
+    parser.add_argument('--export-csv', type=str, help='Export saved offers to CSV file (provide filename)')
+
     global args
     args = parser.parse_args()
-    
+
+    # Initialize database
+    if args.db_path:
+        initialize_database(args.db_path)
+    else:
+        initialize_database()
+
+    # Handle database operations if requested
+    if args.list_saved or args.export_csv or any(getattr(args, f) for f in ['filter_company', 'filter_position', 'filter_city', 'filter_date_from', 'filter_date_to']):
+        handle_database_operations()
+        return
+
+    # Otherwise, proceed with scraping
     url = build_url(
         keywords=args.keywords,
         city=args.city,
         distance=args.distance
     )
-    
-    scrape_jobs(url, args.max_offers)
+
+    offers = scrape_jobs(url, args.max_offers)
+
+    # Save to database if requested
+    if args.save_to_db and offers:
+        conn = connect_to_database(args.db_path) if args.db_path else connect_to_database()
+        try:
+            search_params = {
+                'city': args.city,
+                'distance': args.distance
+            }
+            saved_count, duplicate_count = save_job_offers(conn, offers, search_params)
+            logger.info(f"Database summary: {saved_count} new offers saved, {duplicate_count} duplicates skipped")
+        finally:
+            close_database(conn)
 
 
 if __name__ == "__main__":
