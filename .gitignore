@@ -28,12 +28,17 @@ wheels/
 # IDE
 .idea/
 .vscode/
+.junie/
 *.swp
 *.swo
 
 # OS
 .DS_Store
 Thumbs.db 
+
+# Installers
+install.ps1
+install.sh
 
 # Debug
 *.html
