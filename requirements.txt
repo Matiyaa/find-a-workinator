@@ -3,3 +3,5 @@ requests>=2.32.3
 argparse==1.4.0
 cloudscraper>=1.2.71
 brotli==1.1.0
+pytest>=7.0.0
+pytest-mock>=3.10.0

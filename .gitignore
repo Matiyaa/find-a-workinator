@@ -29,6 +29,8 @@ wheels/
 .idea/
 .vscode/
 .junie/
+.claude/
+.cursor/
 *.swp
 *.swo
 
